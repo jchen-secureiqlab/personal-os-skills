@@ -4,11 +4,15 @@
 Usage:
   python3 extract_passages.py --qa /tmp/qa-1.json /tmp/qa-2.json \
     --sources /tmp/sources.json --slug my-notebook
+  python3 extract_passages.py --qa /tmp/qa-1.json \
+    --sources /tmp/sources.json --slug my-notebook \
+    --vault-path 30_Sources/NotebookLM
 
-Reads all Q&A JSONs, deduplicates cited_text chunks per source (first 100 chars as key),
-and appends a ## Cited Passages section to each source file with ### Passage 1, 2, etc.
+Reads all Q&A JSONs (CLI format or AskResult format), deduplicates cited_text
+chunks per source (first 100 chars as key), and appends a ## Cited Passages
+section to each source file with ### Passage 1, 2, etc.
 
-Incremental - appends new passages to sources that already have a ## Cited Passages section.
+Incremental — appends new passages to sources that already have a ## Cited Passages section.
 """
 import argparse
 import json
@@ -21,11 +25,38 @@ from shared import safe_filename, validate_slug
 VAULT = Path.cwd()
 
 
+def parse_references(qa_data: dict) -> list[dict]:
+    """Parse references from either CLI JSON or AskResult JSON.
+
+    CLI format uses snake_case keys: source_id, cited_text, citation_number
+    AskResult format uses camelCase keys: sourceId, citedText, citationNumber
+
+    >>> parse_references({"references": [{"source_id": "s1", "cited_text": "t1", "citation_number": 1}]})
+    [{'source_id': 's1', 'cited_text': 't1', 'citation_number': 1}]
+    >>> parse_references({"references": [{"sourceId": "s1", "citedText": "t1", "citationNumber": 1}]})
+    [{'source_id': 's1', 'cited_text': 't1', 'citation_number': 1}]
+    """
+    refs = qa_data.get("references", [])
+    return [
+        {
+            "source_id": r.get("source_id", r.get("sourceId", "")),
+            "cited_text": r.get("cited_text", r.get("citedText", "")),
+            "citation_number": r.get("citation_number", r.get("citationNumber")),
+        }
+        for r in refs
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Extract cited passages into source files")
     parser.add_argument("--qa", nargs="+", required=True, help="Q&A JSON files")
     parser.add_argument("--sources", required=True, help="Sources JSON file")
     parser.add_argument("--slug", required=True, help="Notebook slug")
+    parser.add_argument(
+        "--vault-path",
+        default=None,
+        help="Vault subfolder for sources (default: Notes/NotebookLM)",
+    )
     args = parser.parse_args()
     validate_slug(args.slug)
 
@@ -48,7 +79,7 @@ def main():
     for qa_file in args.qa:
         with open(qa_file) as f:
             data = json.load(f)
-        for ref in data["references"]:
+        for ref in parse_references(data):
             ct = ref.get("cited_text", "").strip()
             if not ct:
                 continue
@@ -65,7 +96,8 @@ def main():
 
     print(f"Sources with passages: {len(source_chunks)}", file=sys.stderr)
 
-    sources_dir = VAULT / "Notes/NotebookLM" / args.slug / "Sources"
+    vault_base = args.vault_path or "Notes/NotebookLM"
+    sources_dir = VAULT / vault_base / args.slug / "Sources"
     updated = 0
     skipped = 0
 
@@ -84,14 +116,18 @@ def main():
             # Parse existing passages to find what's already there
             existing_keys = set()
             existing_count = 0
-            for m in re.finditer(r'### Passage (\d+)\n\n(.+?)(?=\n### Passage |\Z)', content, re.DOTALL):
+            for m in re.finditer(
+                r"### Passage (\d+)\n\n(.+?)(?=\n### Passage |\Z)", content, re.DOTALL
+            ):
                 existing_count = max(existing_count, int(m.group(1)))
                 existing_keys.add(m.group(2).strip()[:100])
 
             # Find new chunks not already in the file
             new_chunks = [c for c in chunks if c[:100] not in existing_keys]
             if not new_chunks:
-                print(f"  CURRENT: {filename} ({existing_count} passages, no new)", file=sys.stderr)
+                print(
+                    f"  CURRENT: {filename} ({existing_count} passages, no new)", file=sys.stderr
+                )
                 skipped += 1
                 continue
 
@@ -101,7 +137,11 @@ def main():
                 new_passages += f"\n### Passage {i}\n\n{chunk}\n"
 
             filepath.write_text(content.rstrip() + "\n" + new_passages)
-            print(f"  APPENDED: {filename} (+{len(new_chunks)} passages, {existing_count + len(new_chunks)} total)", file=sys.stderr)
+            print(
+                f"  APPENDED: {filename} "
+                f"(+{len(new_chunks)} passages, {existing_count + len(new_chunks)} total)",
+                file=sys.stderr,
+            )
             updated += 1
         else:
             # Build new passages section

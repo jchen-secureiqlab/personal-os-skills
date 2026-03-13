@@ -28,6 +28,7 @@ import re
 import sys
 from pathlib import Path
 
+from extract_passages import parse_references
 from shared import safe_filename, validate_slug
 
 VAULT = Path.cwd()  # Expected to run from vault root
@@ -85,7 +86,8 @@ def build_chunk_map(references: list[dict]) -> dict[int, dict]:
 
 
 def resolve_answer(answer: str, references: list[dict], source_map: dict[str, str], slug: str,
-                    passage_map: dict[str, dict[str, int]] | None = None) -> tuple[str, list[str], dict]:
+                    passage_map: dict[str, dict[str, int]] | None = None,
+                    vault_path: str | None = None) -> tuple[str, list[str], dict]:
     """Replace [N] markers with [[wikilinks]]. Returns (resolved_text, all_source_titles, stats).
 
     Maps answer [N] to the Nth unique chunk, then to its source.
@@ -93,7 +95,8 @@ def resolve_answer(answer: str, references: list[dict], source_map: dict[str, st
     """
     chunk_map = build_chunk_map(references)
 
-    sources_path = f"Notes/NotebookLM/{slug}/Sources"
+    vault_base = vault_path or "Notes/NotebookLM"
+    sources_path = f"{vault_base}/{slug}/Sources"
 
     # Stats for diagnostics
     cited_sources = set()
@@ -186,6 +189,16 @@ def main():
     parser.add_argument("--output", help="Vault-relative output path for reference note")
     parser.add_argument("--passages", help="Passage mapping JSON from extract_passages.py (enables #Passage N anchors)")
     parser.add_argument("--date", help="Date for frontmatter (default: today)")
+    parser.add_argument(
+        "--vault-path",
+        default=None,
+        help="Vault subfolder for sources (default: Notes/NotebookLM)",
+    )
+    parser.add_argument(
+        "--dashboard-path",
+        default=None,
+        help="Vault subfolder for dashboards (default: Notes/Dashboards)",
+    )
     args = parser.parse_args()
     validate_slug(args.slug)
 
@@ -201,8 +214,11 @@ def main():
     with open(args.qa) as f:
         qa_data = json.load(f)
 
+    references = parse_references(qa_data)
+
     resolved, cited_sources, stats = resolve_answer(
-        qa_data["answer"], qa_data["references"], source_map, args.slug, passage_map
+        qa_data["answer"], references, source_map, args.slug, passage_map,
+        vault_path=args.vault_path,
     )
 
     # Diagnostics
@@ -227,8 +243,10 @@ def main():
 
     from datetime import date
     note_date = args.date or date.today().isoformat()
-    dashboard_path = f"Notes/Dashboards/{args.dashboard}"
-    sources_path = f"Notes/NotebookLM/{args.slug}/Sources"
+    vault_base = args.vault_path or "Notes/NotebookLM"
+    dashboard_base = args.dashboard_path or "Notes/Dashboards"
+    dashboard_path = f"{dashboard_base}/{args.dashboard}"
+    sources_path = f"{vault_base}/{args.slug}/Sources"
 
     sources_re = sources_path.replace("/", "\\/")
     dvjs = "\n".join([

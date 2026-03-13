@@ -1,15 +1,19 @@
 # Ask Notebook Workflow
 
-Ask a NotebookLM notebook a question and save the answer as a vault reference note with `[N]` citations resolved to `[[wikilinks]]`.
+Ask a NotebookLM notebook questions with conversation threading for iterative deep-dives. Save answers as vault reference notes with `[N]` citations resolved to `[[wikilinks]]`.
 
 ## Inputs
 
 - **question**: The question to ask
+- **notebook-id**: NotebookLM notebook ID
 - **title**: Short title for the Q&A note (e.g. "Emerging Themes Across 20 Videos")
-- **notebook-slug**: Which notebook folder to use
+- **notebook-slug**: Which notebook folder to use in the vault
 - **dashboard-title**: Dashboard to link to via `related`
-
-If asking multiple questions, batch them into one note or create separate notes.
+- **mode**: Chat mode — `default`, `learning-guide`, `concise`, `detailed` (optional)
+- **persona**: Custom persona prompt (optional, overrides mode)
+- **conversation-id**: For follow-up questions (optional — from previous output)
+- **vault-path**: Vault subfolder for sources (optional, default: `Notes/NotebookLM`)
+- **dashboard-path**: Vault subfolder for dashboards (optional, default: `Notes/Dashboards`)
 
 ## Step 1: Verify Auth
 
@@ -21,28 +25,84 @@ If auth error: run `notebooklm login` to re-authenticate.
 
 ## Step 2: Ask the Question
 
+### First question (new conversation):
+
 ```bash
 QA_FILE=$(mktemp /tmp/notebooklm-qa-XXXXXX.json)
-notebooklm ask --new --json "{question}" > "$QA_FILE"
+python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+  --notebook-id {notebook-id} \
+  --question "{question}" \
+  --mode {mode} > "$QA_FILE"
 ```
 
-Flags:
-- `--new`: Start a fresh conversation (prevents context leak from prior Q&A)
-- `--json`: Get structured output with `references[]` for citation resolution
+### Follow-up question (existing conversation):
+
+```bash
+QA_FILE_2=$(mktemp /tmp/notebooklm-qa-XXXXXX.json)
+python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+  --notebook-id {notebook-id} \
+  --question "{follow-up question}" \
+  --conversation-id {conversation_id} > "$QA_FILE_2"
+```
+
+The `conversation_id` comes from the previous question's JSON output. The server maintains the conversation thread — follow-ups have access to prior context.
+
+### With custom persona:
+
+```bash
+python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+  --notebook-id {notebook-id} \
+  --question "{question}" \
+  --persona "You are a security analyst. Focus on risks and mitigations." > "$QA_FILE"
+```
+
+### With response length:
+
+```bash
+python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+  --notebook-id {notebook-id} \
+  --question "{question}" \
+  --response-length longer > "$QA_FILE"
+```
+
+**Output JSON format:**
+```json
+{
+  "answer": "The answer text with [1] citation markers...",
+  "conversation_id": "uuid-for-follow-ups",
+  "turn_number": 1,
+  "is_follow_up": false,
+  "references": [
+    {"source_id": "uuid", "cited_text": "...", "citation_number": 1}
+  ]
+}
+```
 
 ## Step 3: Extract Passages
 
 ```bash
+SOURCES_FILE=$(mktemp /tmp/notebooklm-sources-XXXXXX.json)
+notebooklm source list --json > "$SOURCES_FILE"
+
 PASSAGE_MAP=$(mktemp /tmp/notebooklm-passages-XXXXXX.json)
 python3 .claude/skills/notebooklm/scripts/extract_passages.py \
   --qa "$QA_FILE" \
   --sources "$SOURCES_FILE" \
-  --slug {notebook-slug} > "$PASSAGE_MAP"
+  --slug {notebook-slug} \
+  --vault-path "{vault-path}" > "$PASSAGE_MAP"
 ```
 
-This writes `## Cited Passages / ### Passage N` sections into source files using the `cited_text` from references (the actual transcript chunks NotebookLM used as evidence). Idempotent - skips sources that already have passages. Outputs a passage mapping JSON for the resolver.
+This writes `## Cited Passages / ### Passage N` sections into source files using the `cited_text` from references. Idempotent — skips sources that already have passages.
 
-For multiple Q&As, pass all JSON files: `--qa /tmp/qa-1.json /tmp/qa-2.json ...`
+**Multi-turn:** Pass all Q&A files to accumulate passages across turns:
+
+```bash
+python3 .claude/skills/notebooklm/scripts/extract_passages.py \
+  --qa "$QA_FILE" "$QA_FILE_2" \
+  --sources "$SOURCES_FILE" \
+  --slug {notebook-slug} \
+  --vault-path "{vault-path}" > "$PASSAGE_MAP"
+```
 
 ## Step 4: Resolve Citations
 
@@ -54,17 +114,18 @@ python3 .claude/skills/notebooklm/scripts/resolve_citations.py \
   --passages "$PASSAGE_MAP" \
   --title "{title}" \
   --dashboard "{dashboard-title}" \
-  --output "Notes/NotebookLM/{notebook-slug}/QA/{date} {title}.md"
+  --vault-path "{vault-path}" \
+  --dashboard-path "{dashboard-path}" \
+  --output "{vault-path}/{notebook-slug}/QA/{date} {title}.md"
 ```
 
 This:
 1. Deduplicates references by `cited_text` to find unique evidence chunks
 2. Maps answer `[N]` to the Nth unique chunk (not to `citation_number` field)
 3. Expands citation specs (`[1, 2]`, `[3-5]`) into individual numbers
-4. Maps each chunk to its `source_id` -> source file title
-5. Replaces `[N]` markers with `[[Source Title#Passage N]]` wikilinks (passage-level when `--passages` provided)
-6. Writes a `reference` type note with resolved answer + sources table
-7. Lists uncited sources separately (NotebookLM often cites only a subset)
+4. Replaces `[N]` markers with `[[Source Title#Passage N]]` wikilinks
+5. Writes a `reference` type note with resolved answer + sources table
+6. Lists uncited sources separately
 
 **Known limitation:** NotebookLM's `references[]` often covers only a few sources even when the answer synthesizes across all of them. The resolver warns about this and lists uncited sources in a separate section.
 
@@ -77,28 +138,51 @@ Open the Q&A note in Obsidian and check:
 - [ ] Sources Referenced section at bottom lists all cited sources
 - [ ] Uncited Sources section lists sources without granular citations
 
-## Batch Mode
+## Multi-Turn Deep Dive Flow
 
-For multiple questions at once:
+For iterative Q&A sessions:
 
-```python
-questions = [
-    {"question": "What are the main themes?", "title": "Main Themes"},
-    {"question": "What tools are used?", "title": "Tools Compared"},
-]
+```
+Turn 1: Ask broad question
+  → Save qa-1.json, note conversation_id
 
-for q in questions:
-    # Run notebooklm ask --new --json for each
-    # Run extract_passages.py with ALL Q&A JSONs so far
-    # Run resolve_citations.py with --passages for each
+Turn 2: Follow up on specifics
+  → python3 ask_notebook.py --conversation-id {id} --question "..." > qa-2.json
+
+Turn 3: Drill deeper
+  → python3 ask_notebook.py --conversation-id {id} --question "..." > qa-3.json
+
+Extract all passages at once:
+  → python3 extract_passages.py --qa qa-1.json qa-2.json qa-3.json ...
+
+Resolve into one conversation note:
+  → python3 resolve_citations.py --qa qa-1.json ... --title "Session: {topic}"
 ```
 
-Each question gets `--new` to start a fresh conversation. Ask them in parallel if independent. Run extract_passages once with all Q&A files to accumulate passages.
+Passages accumulate across turns (extract_passages is idempotent — skips existing passages). One reference note per conversation captures the full deep dive.
+
+## Batch Mode
+
+For multiple independent questions (no threading):
+
+```bash
+for q in "${questions[@]}"; do
+    python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+      --notebook-id {notebook-id} \
+      --question "$q" > "/tmp/qa-${i}.json"
+done
+
+# Extract passages from all at once
+python3 .claude/skills/notebooklm/scripts/extract_passages.py \
+  --qa /tmp/qa-*.json \
+  --sources "$SOURCES_FILE" \
+  --slug {notebook-slug}
+```
 
 ## Output
 
-- Q&A reference note at `Notes/NotebookLM/{notebook-slug}/QA/{date} {title}.md`
-- All `[N]` citations resolved to `[[Source Title#Passage N]]` wikilinks (passage-level)
-- Source files enriched with `## Cited Passages` sections containing the actual evidence
+- Q&A reference note at `{vault-path}/{notebook-slug}/QA/{date} {title}.md`
+- All `[N]` citations resolved to `[[Source Title#Passage N]]` wikilinks
+- Source files enriched with `## Cited Passages` sections
 - Uncited sources listed separately
-- `related` links to dashboard
+- `conversation_id` in JSON output for follow-up questions

@@ -1,8 +1,10 @@
 """Shared utilities for NotebookLM skill scripts.
 
-Provides input validation, filename sanitization, and injection escaping
-used across extract_passages.py, import_sources.py, and resolve_citations.py.
+Provides input validation, filename sanitization, injection escaping,
+and async API helpers used across all NotebookLM skill scripts.
 """
+import asyncio
+import os
 import re
 import sys
 
@@ -138,6 +140,68 @@ def wikilink_safe(text: str) -> str:
     text = text.replace("[[", "")
     text = text.replace("|", "")
     return text
+
+
+# --- notebooklm-py import guard ---
+
+_NOTEBOOKLM_PY_SRC = os.path.expanduser("~/projects/notebooklm-py/src")
+
+
+def ensure_notebooklm_importable():
+    """Add notebooklm-py to sys.path if not already importable.
+
+    Call at the top of any script that uses the NotebookLMClient API.
+    Exits with a clear error if the package cannot be found.
+    """
+    try:
+        import notebooklm  # noqa: F401
+    except ImportError:
+        if os.path.isdir(_NOTEBOOKLM_PY_SRC):
+            sys.path.insert(0, _NOTEBOOKLM_PY_SRC)
+            try:
+                import notebooklm  # noqa: F401
+            except ImportError:
+                print(
+                    "ERROR: notebooklm-py found at "
+                    f"{_NOTEBOOKLM_PY_SRC} but failed to import.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        else:
+            print(
+                f"ERROR: notebooklm-py not found at {_NOTEBOOKLM_PY_SRC}",
+                file=sys.stderr,
+            )
+            print(
+                "Clone it or update _NOTEBOOKLM_PY_SRC in shared.py.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
+# --- Async API helpers ---
+
+
+async def retry_on_rate_limit(coro_fn, *args, max_retries=3, **kwargs):
+    """Retry an async callable on RateLimitError with backoff.
+
+    Uses retry_after from the error when available, otherwise waits 60s.
+    """
+    from notebooklm import RateLimitError
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn(*args, **kwargs)
+        except RateLimitError as e:
+            if attempt == max_retries:
+                raise
+            wait = e.retry_after or 60
+            print(
+                f"  Rate limited. Waiting {wait}s "
+                f"(attempt {attempt + 1}/{max_retries})...",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(wait)
 
 
 if __name__ == "__main__":

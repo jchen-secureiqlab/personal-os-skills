@@ -4,10 +4,15 @@ Import all sources from a NotebookLM notebook into the vault as linked `notebook
 
 ## Inputs
 
+- **notebook-id**: NotebookLM notebook ID (required)
 - **notebook-slug**: short kebab-case name for the notebook (e.g. `obsidian-x-claude-code`)
 - **dashboard-title**: human-readable title for the dashboard (e.g. `Obsidian x Claude Code Research`)
+- **vault-path**: vault subfolder for sources (optional, default: `Notes/NotebookLM`)
+- **dashboard-path**: vault subfolder for dashboards (optional, default: `Notes/Dashboards`)
 
-If user doesn't specify these, derive from `notebooklm status` output.
+If user doesn't specify notebook-id or slug, derive from `notebooklm status` output.
+
+**Vault layout:** The default layout is `Notes/NotebookLM/{slug}/Sources/`. For PARA-style vaults, pass `--vault-path 30_Sources/NotebookLM` to write to `30_Sources/NotebookLM/{slug}/Sources/` instead.
 
 ## Step 1: Verify Auth
 
@@ -27,55 +32,62 @@ notebooklm status
 ## Step 3: Create Folder Structure
 
 ```bash
-mkdir -p "Notes/NotebookLM/{notebook-slug}/Sources"
-mkdir -p "Notes/NotebookLM/{notebook-slug}/QA"
+VAULT_PATH="${vault-path:-Notes/NotebookLM}"
+mkdir -p "$VAULT_PATH/{notebook-slug}/Sources"
+mkdir -p "$VAULT_PATH/{notebook-slug}/QA"
 ```
 
-## Step 4: Export Source List
+## Step 4: Create Source Files with Guides
 
-```bash
-SOURCES_FILE=$(mktemp /tmp/notebooklm-sources-XXXXXX.json)
-notebooklm source list --json > "$SOURCES_FILE"
-```
-
-Inspect the JSON to understand the schema. Key fields: `id`, `title`, `type`, `url`, `created_at`.
-
-## Step 5: Create Source Files
-
-Run the import script:
+Run the import script — it fetches sources from the API and creates vault files with AI-generated guides:
 
 ```bash
 python3 .claude/skills/notebooklm/scripts/import_sources.py \
-  --sources "$SOURCES_FILE" \
+  --notebook-id {notebook-id} \
   --slug {notebook-slug} \
-  --dashboard "{dashboard-title}"
+  --dashboard "{dashboard-title}" \
+  --vault-path "{vault-path}" \
+  --dashboard-path "{dashboard-path}"
 ```
 
-This creates one `.md` file per source with proper frontmatter and `related` linking to dashboard.
+This:
+1. Fetches all sources from the notebook via the Python API
+2. Creates one `.md` file per source with frontmatter, topic wikilinks, and `related` linking to dashboard
+3. Fetches AI-generated source guides with retry on rate limiting
+4. Skips sources with bad titles (< 3 chars, "- YouTube")
+5. Skips existing files (idempotent — safe to re-run)
 
-## Step 6: Fetch Source Guides
+**Note:** Guide fetching is sequential (one API call per source with rate limit retry). For 20 sources, expect ~2-3 minutes.
 
-The import script also fetches AI-generated source guides via `notebooklm source guide {id} --json` and writes them into each file's `## Source Guide` section.
+Omit `--vault-path` and `--dashboard-path` to use defaults (`Notes/NotebookLM` and `Notes/Dashboards`).
 
-**Note:** This is sequential (one API call per source). For 20 sources, expect ~2-3 minutes.
+To skip guide fetching (faster but no AI summaries):
 
-## Step 7: Create Dashboard
+```bash
+python3 .claude/skills/notebooklm/scripts/import_sources.py \
+  --notebook-id {notebook-id} \
+  --slug {notebook-slug} \
+  --dashboard "{dashboard-title}" \
+  --skip-guides
+```
 
-Create `Notes/Dashboards/{dashboard-title}.md` using the dashboard template from `templates/dashboard.md`.
+## Step 5: Create Dashboard
 
-Replace `{notebook-slug}` in the Dataview queries with the actual slug.
+Create `{dashboard-path}/{dashboard-title}.md` using the dashboard template from `templates/dashboard.md`.
 
-## Step 8: Verify
+Replace `{notebook-slug}` and vault path references in the Dataview queries.
+
+## Step 6: Verify
 
 ```bash
 # Check source count
-ls "Notes/NotebookLM/{notebook-slug}/Sources/" | wc -l
+ls "$VAULT_PATH/{notebook-slug}/Sources/" | wc -l
 ```
 
 Open the dashboard in Obsidian and verify Dataview queries render.
 
 ## Output
 
-- `N` source files in `Notes/NotebookLM/{notebook-slug}/Sources/`
-- Dashboard at `Notes/Dashboards/{dashboard-title}.md`
+- `N` source files in `{vault-path}/{notebook-slug}/Sources/`
+- Dashboard at `{dashboard-path}/{dashboard-title}.md`
 - Empty `QA/` folder ready for ask workflow

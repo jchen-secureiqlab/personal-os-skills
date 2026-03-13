@@ -1,19 +1,28 @@
 ---
 name: notebooklm
-description: Import NotebookLM notebooks into your Obsidian vault as linked knowledge graphs. Sources become wikilink-able files, Q&A answers get citations resolved to [[wikilinks]] with passage-level deep links. Use when user says "notebooklm import", "import notebook", "notebooklm ask", "notebooklm sources", or wants to turn NotebookLM research into vault knowledge.
+description: >-
+  Full NotebookLM lifecycle — create notebooks, deep research (YouTube + web),
+  generate artifacts (audio, video, reports, infographics), import to Obsidian vault,
+  Q&A with citation resolution, pipeline bridge. Use when user says "notebooklm create",
+  "new notebook", "notebooklm research", "deep research", "research topic",
+  "notebooklm generate", "make infographic", "generate audio", "generate report",
+  "generate video", "notebooklm import", "import notebook", "notebooklm ask",
+  "ask notebook", "Q&A", "notebooklm bridge", "import pipeline",
+  or wants to turn research into vault knowledge.
 ---
 
-# NotebookLM - Vault Knowledge Graph
+# NotebookLM — Research, Generate, Knowledge
 
-Turn NotebookLM notebooks into persistent, linked vault knowledge. Sources become files you can `[[wikilink]]`, Q&A answers get `[N]` citations resolved to those wikilinks, dashboards tie it all together.
+Full NotebookLM lifecycle: create notebooks, deep research (YouTube + web), generate artifacts (audio, video, reports, infographics, mind-maps), import to Obsidian vault as linked knowledge graphs, Q&A with citation resolution.
 
 ## Prerequisites
 
 ### 1. Install notebooklm-py
 
 ```bash
-pip install "notebooklm-py[browser]"
-playwright install chromium
+cd ~/projects/notebooklm-py
+uv sync --extra browser
+uv run playwright install chromium
 ```
 
 ### 2. Authenticate
@@ -53,8 +62,12 @@ notebooklm list
 
 | User says | Workflow |
 |-----------|----------|
+| "notebooklm create", "new notebook", "create notebook" | [workflows/create.md](workflows/create.md) |
+| "notebooklm research", "deep research", "research topic" | [workflows/research.md](workflows/research.md) |
+| "notebooklm generate", "make infographic", "generate audio", "generate report", "generate video" | [workflows/generate.md](workflows/generate.md) |
 | "import notebook", "notebooklm import", "import sources" | [workflows/import.md](workflows/import.md) |
-| "notebooklm ask", "ask notebook", "Q&A" | [workflows/ask.md](workflows/ask.md) |
+| "notebooklm ask", "ask notebook", "Q&A", "follow up", "deep dive" | [workflows/ask.md](workflows/ask.md) |
+| "notebooklm bridge", "import pipeline", "bridge research" | [workflows/bridge.md](workflows/bridge.md) |
 
 ## Architecture
 
@@ -103,10 +116,17 @@ related:
 
 ## Scripts
 
+All scripts use the `notebooklm-py` Python API directly (no CLI subprocess calls). They require `notebooklm-py` to be importable — `shared.py` handles `sys.path` resolution automatically.
+
 | Script | Purpose |
 |--------|---------|
 | `scripts/import_sources.py` | Import sources as vault files with AI-generated guides and topics |
 | `scripts/extract_passages.py` | Extract cited passages from Q&A into source files |
 | `scripts/resolve_citations.py` | Replace `[N]` markers with `[[wikilinks]]` in Q&A answers |
+| `scripts/ask_notebook.py` | Ask questions with conversation threading, outputs JSON with `conversation_id` |
+| `scripts/pipeline_bridge.py` | Import pipeline research output into NotebookLM |
+| `scripts/shared.py` | Shared utilities: slug validation, filename sanitization, retry helper, import guard |
 
-All scripts use `Path.cwd()` as vault root - run them from your vault directory.
+All scripts use `Path.cwd()` as vault root — run them from your vault directory.
+
+**Vault path flexibility:** `import_sources.py`, `extract_passages.py`, and `resolve_citations.py` accept `--vault-path` (default: `Notes/NotebookLM`) and `--dashboard-path` (default: `Notes/Dashboards`) to support any vault layout (e.g., PARA-style `30_Sources/NotebookLM`).
