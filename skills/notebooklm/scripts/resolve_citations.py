@@ -181,7 +181,7 @@ def resolve_answer(answer: str, references: list[dict], source_map: dict[str, st
 
 def main():
     parser = argparse.ArgumentParser(description="Resolve NotebookLM citations to wikilinks")
-    parser.add_argument("--qa", required=True, help="Path to notebooklm ask --json output")
+    parser.add_argument("--qa", nargs="+", required=True, help="Path(s) to notebooklm ask --json output (multiple for multi-turn)")
     parser.add_argument("--sources", required=True, help="Path to notebooklm source list --json output")
     parser.add_argument("--slug", required=True, help="Notebook slug")
     parser.add_argument("--title", help="Q&A note title (required for --output)")
@@ -211,30 +211,73 @@ def main():
             passage_map = json.load(f)
         print(f"Passage map: {len(passage_map)} sources", file=sys.stderr)
 
-    with open(args.qa) as f:
-        qa_data = json.load(f)
+    # Load and merge Q&A files (single or multi-turn)
+    qa_files = args.qa
+    all_resolved = []
+    combined_stats = None
 
-    references = parse_references(qa_data)
+    for i, qa_path in enumerate(qa_files):
+        with open(qa_path) as f:
+            qa_data = json.load(f)
 
-    resolved, cited_sources, stats = resolve_answer(
-        qa_data["answer"], references, source_map, args.slug, passage_map,
-        vault_path=args.vault_path,
-    )
+        references = parse_references(qa_data)
 
-    # Diagnostics
-    print(f"Refs: {stats['total_refs']} raw -> {stats['unique_chunks']} unique chunks", file=sys.stderr)
-    print(f"Sources cited: {stats['cited_sources']}/{stats['total_sources']}", file=sys.stderr)
-    if passage_map:
-        print(f"Passage anchors: {stats['passage_hits']} linked, {stats['passage_misses']} source-only", file=sys.stderr)
-    if stats["uncited_sources"]:
-        print(f"WARNING: {len(stats['uncited_sources'])} sources have no citations in the answer:", file=sys.stderr)
-        for s in stats["uncited_sources"]:
+        resolved, cited_sources, stats = resolve_answer(
+            qa_data["answer"], references, source_map, args.slug, passage_map,
+            vault_path=args.vault_path,
+        )
+
+        turn_label = f"Turn {i + 1}" if len(qa_files) > 1 else None
+        all_resolved.append((resolved, turn_label))
+
+        # Diagnostics per turn
+        label = f"[{turn_label}] " if turn_label else ""
+        print(f"{label}Refs: {stats['total_refs']} raw -> {stats['unique_chunks']} unique chunks", file=sys.stderr)
+        print(f"{label}Sources cited: {stats['cited_sources']}/{stats['total_sources']}", file=sys.stderr)
+        if passage_map:
+            print(f"{label}Passage anchors: {stats['passage_hits']} linked, {stats['passage_misses']} source-only", file=sys.stderr)
+
+        # Accumulate stats across turns
+        if combined_stats is None:
+            combined_stats = stats.copy()
+            combined_stats["_cited_set"] = set(cited_sources)
+            combined_stats["_total_set"] = set(stats.get("uncited_sources", [])) | set(cited_sources)
+        else:
+            combined_stats["total_refs"] += stats["total_refs"]
+            combined_stats["unique_chunks"] += stats["unique_chunks"]
+            combined_stats["passage_hits"] += stats["passage_hits"]
+            combined_stats["passage_misses"] += stats["passage_misses"]
+            combined_stats["_cited_set"].update(cited_sources)
+            combined_stats["_total_set"].update(stats.get("uncited_sources", []))
+            combined_stats["_total_set"].update(cited_sources)
+
+    # Finalize combined stats
+    combined_stats["cited_sources"] = len(combined_stats["_cited_set"])
+    combined_stats["uncited_sources"] = sorted(combined_stats["_total_set"] - combined_stats["_cited_set"])
+    combined_stats["total_sources"] = len(combined_stats["_total_set"])
+
+    if combined_stats["uncited_sources"]:
+        print(f"WARNING: {len(combined_stats['uncited_sources'])} sources have no citations in any answer:", file=sys.stderr)
+        for s in combined_stats["uncited_sources"]:
             print(f"  - {s}", file=sys.stderr)
+
+    # Build final resolved text
+    if len(all_resolved) == 1:
+        final_resolved = all_resolved[0][0]
+    else:
+        parts = []
+        for resolved_text, turn_label in all_resolved:
+            parts.append(f"## {turn_label}\n\n{resolved_text}")
+        final_resolved = "\n\n---\n\n".join(parts)
 
     if not args.output:
         # Preview mode - print to stdout
-        print(resolved)
+        print(final_resolved)
         return
+
+    # Use combined stats for the rest
+    stats = combined_stats
+    resolved = final_resolved
 
     # Write reference note
     if not args.title or not args.dashboard:
