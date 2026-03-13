@@ -115,6 +115,14 @@ async def ask_notebook(args: argparse.Namespace) -> None:
         ],
     }
 
+    # Warn if follow-up didn't thread (server lost the conversation)
+    if args.conversation_id and not result.is_follow_up:
+        print(
+            "WARNING: --conversation-id was provided but server started a new conversation. "
+            "Threading may have expired. Treating as a new question.",
+            file=sys.stderr,
+        )
+
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
     sys.stdout.flush()
