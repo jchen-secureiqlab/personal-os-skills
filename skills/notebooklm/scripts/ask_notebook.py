@@ -116,7 +116,8 @@ async def ask_notebook(args: argparse.Namespace) -> None:
     }
 
     json.dump(output, sys.stdout, indent=2)
-    print(file=sys.stderr)  # newline for stderr diagnostics
+    sys.stdout.write("\n")
+    sys.stdout.flush()
     print(
         f"Turn {result.turn_number}: {len(result.answer)} chars, "
         f"{len(result.references)} references, "
