@@ -14,6 +14,8 @@ If user doesn't specify notebook-id or slug, derive from `notebooklm status` out
 
 **Vault layout:** The default layout is `Notes/NotebookLM/{slug}/Sources/`. For PARA-style vaults, pass `--vault-path 30_Sources/NotebookLM` to write to `30_Sources/NotebookLM/{slug}/Sources/` instead.
 
+**Python interpreter:** All script commands below must use `~/projects/notebooklm-py/.venv/bin/python3` (not system `python3`), since the scripts depend on `httpx` and other packages installed in the notebooklm-py venv.
+
 ## Step 1: Verify Auth
 
 ```bash
@@ -42,7 +44,7 @@ mkdir -p "$VAULT_PATH/{notebook-slug}/QA"
 Run the import script — it fetches sources from the API and creates vault files with AI-generated guides:
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/import_sources.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/import_sources.py \
   --notebook-id {notebook-id} \
   --slug {notebook-slug} \
   --dashboard "{dashboard-title}" \
@@ -64,7 +66,7 @@ Omit `--vault-path` and `--dashboard-path` to use defaults (`Notes/NotebookLM` a
 To skip guide fetching (faster but no AI summaries):
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/import_sources.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/import_sources.py \
   --notebook-id {notebook-id} \
   --slug {notebook-slug} \
   --dashboard "{dashboard-title}" \

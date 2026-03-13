@@ -15,6 +15,8 @@ Ask a NotebookLM notebook questions with conversation threading for iterative de
 - **vault-path**: Vault subfolder for sources (optional, default: `Notes/NotebookLM`)
 - **dashboard-path**: Vault subfolder for dashboards (optional, default: `Notes/Dashboards`)
 
+**Python interpreter:** All script commands below must use `~/projects/notebooklm-py/.venv/bin/python3` (not system `python3`), since the scripts depend on `httpx` and other packages installed in the notebooklm-py venv.
+
 ## Step 1: Verify Auth
 
 ```bash
@@ -29,7 +31,7 @@ If auth error: run `notebooklm login` to re-authenticate.
 
 ```bash
 QA_FILE=$(mktemp /tmp/notebooklm-qa-XXXXXX.json)
-python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
   --notebook-id {notebook-id} \
   --question "{question}" \
   --mode {mode} > "$QA_FILE"
@@ -39,7 +41,7 @@ python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
 
 ```bash
 QA_FILE_2=$(mktemp /tmp/notebooklm-qa-XXXXXX.json)
-python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
   --notebook-id {notebook-id} \
   --question "{follow-up question}" \
   --conversation-id {conversation_id} > "$QA_FILE_2"
@@ -50,7 +52,7 @@ The `conversation_id` comes from the previous question's JSON output. The server
 ### With custom persona:
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
   --notebook-id {notebook-id} \
   --question "{question}" \
   --persona "You are a security analyst. Focus on risks and mitigations." > "$QA_FILE"
@@ -59,7 +61,7 @@ python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
 ### With response length:
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
   --notebook-id {notebook-id} \
   --question "{question}" \
   --response-length longer > "$QA_FILE"
@@ -85,7 +87,7 @@ SOURCES_FILE=$(mktemp /tmp/notebooklm-sources-XXXXXX.json)
 notebooklm source list --json > "$SOURCES_FILE"
 
 PASSAGE_MAP=$(mktemp /tmp/notebooklm-passages-XXXXXX.json)
-python3 .claude/skills/notebooklm/scripts/extract_passages.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/extract_passages.py \
   --qa "$QA_FILE" \
   --sources "$SOURCES_FILE" \
   --slug {notebook-slug} \
@@ -97,7 +99,7 @@ This writes `## Cited Passages / ### Passage N` sections into source files using
 **Multi-turn:** Pass all Q&A files to accumulate passages across turns:
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/extract_passages.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/extract_passages.py \
   --qa "$QA_FILE" "$QA_FILE_2" \
   --sources "$SOURCES_FILE" \
   --slug {notebook-slug} \
@@ -107,7 +109,7 @@ python3 .claude/skills/notebooklm/scripts/extract_passages.py \
 ## Step 4: Resolve Citations
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/resolve_citations.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/resolve_citations.py \
   --qa "$QA_FILE" \
   --sources "$SOURCES_FILE" \
   --slug {notebook-slug} \
@@ -167,13 +169,13 @@ For multiple independent questions (no threading):
 
 ```bash
 for q in "${questions[@]}"; do
-    python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
+    ~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/ask_notebook.py \
       --notebook-id {notebook-id} \
       --question "$q" > "/tmp/qa-${i}.json"
 done
 
 # Extract passages from all at once
-python3 .claude/skills/notebooklm/scripts/extract_passages.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/extract_passages.py \
   --qa /tmp/qa-*.json \
   --sources "$SOURCES_FILE" \
   --slug {notebook-slug}

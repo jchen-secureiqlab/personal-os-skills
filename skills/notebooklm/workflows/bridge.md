@@ -10,6 +10,8 @@ Import research output from a LinkedIn content pipeline run into NotebookLM for 
 
 One of `--notebook-id` or `--create` is required.
 
+**Python interpreter:** All script commands below must use `~/projects/notebooklm-py/.venv/bin/python3` (not system `python3`), since the scripts depend on `httpx` and other packages installed in the notebooklm-py venv.
+
 ## Step 1: Verify Auth
 
 ```bash
@@ -35,7 +37,7 @@ The bridge prefers `02b-verified-research.md` (fact-checked). Falls back to `02-
 ### Into existing notebook:
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/pipeline_bridge.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/pipeline_bridge.py \
   --notebook-id {notebook-id} \
   "{run-dir}"
 ```
@@ -43,7 +45,7 @@ python3 .claude/skills/notebooklm/scripts/pipeline_bridge.py \
 ### Into new notebook:
 
 ```bash
-python3 .claude/skills/notebooklm/scripts/pipeline_bridge.py \
+~/projects/notebooklm-py/.venv/bin/python3 .claude/skills/notebooklm/scripts/pipeline_bridge.py \
   --create "{title}" \
   "{run-dir}"
 ```
